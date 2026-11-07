@@ -1,0 +1,13 @@
+# Local credentials and user data
+程序文件/.private/
+程序文件/教师资料.json
+程序文件/启动日志.txt
+程序文件/打卡记录.txt
+程序文件/打卡记录/*
+!程序文件/打卡记录/.已迁移
+程序文件/照片/
+程序文件/矢志之星数据/
+**/__pycache__/
+*.py[cod]
+*.bak
+*.tmp

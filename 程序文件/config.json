@@ -1,0 +1,6 @@
+{
+  "wecom_exe": "",
+  "model": "deepseek-flash",
+  "minimum_chars": 80,
+  "allow_fake_ip_dns": false
+}

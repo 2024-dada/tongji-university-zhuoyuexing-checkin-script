@@ -14,6 +14,14 @@ from itertools import islice
 from .edge_search import iter_image_results
 
 
+class ImageSelectionRequired(ValueError):
+    """Search cannot safely supply an image; keep the draft for manual selection."""
+
+
+class ImageSearchUnavailable(ImageSelectionRequired):
+    """Image search or download is unavailable; retry the same draft later."""
+
+
 def public_url(url, allow_fake_ip_dns=False):
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme not in ('https', 'http') or not parsed.hostname or parsed.username:
@@ -28,8 +36,13 @@ def public_url(url, allow_fake_ip_dns=False):
     addresses = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == 'https' else 80))
     for address in addresses:
         ip = ipaddress.ip_address(address[4][0])
+        proxy_ip = literal is None and ip.version == 4 and ip in ipaddress.ip_network('198.18.0.0/16')
+        if proxy_ip and not allow_fake_ip_dns:
+            raise ImageSearchUnavailable(
+                '公网图片域名被代理解析为 Fake-IP（198.18.x.x），配图下载已暂停。'
+                '请配置代理 DNS 兼容后继续当前对象。')
         # Only named public hosts may use the explicitly configured proxy DNS range.
-        fake = allow_fake_ip_dns and literal is None and ip.version == 4 and ip in ipaddress.ip_network('198.18.0.0/16')
+        fake = allow_fake_ip_dns and proxy_ip
         if not ip.is_global and not fake:
             raise ValueError('图片地址指向本地网络，已拒绝下载。')
 
@@ -82,14 +95,6 @@ def remove_edge_watermarks(image, boxes):
     if right - left < width * .65 or bottom - top < height * .65:
         raise ValueError('去水印需要裁掉过多内容，请换图。')
     return image.crop((left, top, right, bottom))
-
-
-class ImageSelectionRequired(ValueError):
-    """Search cannot safely supply an image; keep the draft for manual selection."""
-
-
-class ImageSearchUnavailable(ImageSelectionRequired):
-    """The search transport failed before any photo could be reviewed."""
 
 
 class ImageFinder:
@@ -251,6 +256,7 @@ class ImageFinder:
         seen = set()
         checked, best = 0, None
         search_errors = []
+        download_errors = []
         log_path = folder / '图片审查.jsonl'
         def log(item):
             with log_path.open('a', encoding='utf-8') as stream:
@@ -276,6 +282,8 @@ class ImageFinder:
         def search_candidates(query):
             try:
                 yield from results(query, self.allow_fake_ip_dns, root=self.root, cancel=self.cancel)
+            except ImageSearchUnavailable:
+                raise
             except (OSError, ValueError, TimeoutError) as error:
                 detail = type(error).__name__ + ': ' + str(error)[:250]
                 search_errors.append(detail)
@@ -295,6 +303,15 @@ class ImageFinder:
                 entry = dict(candidate, query=query, number=number, accepted=False)
                 try:
                     raw = download(candidate['url'], allow_fake_ip_dns=self.allow_fake_ip_dns)
+                except ImageSearchUnavailable as error:
+                    log(dict(entry, reason='下载环境不可用，暂停当前对象', error=str(error)))
+                    raise
+                except (OSError, ValueError, TimeoutError) as error:
+                    detail = type(error).__name__ + ': ' + str(error)[:250]
+                    download_errors.append(detail)
+                    log(dict(entry, reason='下载失败', error=detail))
+                    continue
+                try:
                     picture = Image.open(io.BytesIO(raw))
                     if picture.width < 160 or picture.height < 160 or picture.width * picture.height > 24_000_000:
                         entry['reason'] = '图片尺寸不合适'; log(entry); continue
@@ -387,6 +404,9 @@ class ImageFinder:
             log(dict(entry, fallback=True, accepted=False, sha256=proof['sha256']))
             self.report(f"{self.REVIEW_LIMIT}张均未通过严格审查；采用DeepSeek评分最高候选第{proof['review_index']}张（{proof['relevance_score']}/100），不是审查通过图片。")
             return str(path)
+        if not checked and download_errors:
+            raise ImageSearchUnavailable(
+                f'配图下载失败（{len(download_errors)} 个地址），当前对象已保留：' + download_errors[-1])
         if not checked:
             reason = ('Edge 搜索未完成：' + search_errors[-1] if search_errors else
                       '未找到可以下载并正常打开且适合审查的图片')

@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from checkin.engine import Engine, MaterialUnavailable
+from checkin.engine import Engine, MaterialUnavailable, NeedUser
 from checkin.storage import History
-from checkin.images import ImageSelectionRequired
+from checkin.images import ImageSelectionRequired, ImageSearchUnavailable
 from checkin.batch import BatchSession
 from checkin.deepseek import TeacherInformationMissing, NoBalance
 from checkin.storage import today
@@ -110,6 +110,15 @@ class FreshListHistoryTests(unittest.TestCase):
         self.engine.history = restarted
         name, _ = self.engine.choose('弘文之星', set())
         self.assertEqual(name, '天演论')
+
+    def test_transport_failure_preserves_pending_object_and_stops_batch(self):
+        finder = Mock()
+        finder.choose.side_effect = ImageSearchUnavailable('代理 DNS 配置导致下载失败')
+        with patch('checkin.engine.ImageFinder', return_value=finder):
+            with self.assertRaises(NeedUser):
+                self.engine.prepare('弘文之星')
+        self.assertEqual(self.history.rows[-1]['status'], '待提交')
+        self.assertIsNotNone(self.history.pending('弘文之星'))
 
     def test_batch_advances_after_search_failure_without_submitting_or_spending_quota(self):
         import app

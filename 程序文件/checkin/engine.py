@@ -3,7 +3,7 @@ import re
 import time
 from pathlib import Path
 
-from .images import ImageFinder, ImageSelectionRequired
+from .images import ImageFinder, ImageSelectionRequired, ImageSearchUnavailable
 from .storage import object_key, same_object_by_keyword, today
 from .windows import Desktop, find
 from .teachers import teacher_name
@@ -1072,6 +1072,9 @@ class Engine:
             self.report('搜索主题配图……')
             try:
                 image = finder.choose(theme, row['object'], row['id'])
+            except ImageSearchUnavailable as error:
+                self.history.update(row['id'], phase='配图服务不可用，保留待提交：' + str(error))
+                raise NeedUser(str(error)) from error
             except ImageSelectionRequired as error:
                 self.skip_unavailable(row, str(error))
             row = self.history.update(row['id'], image=image, phase='配图已保存')

@@ -1158,7 +1158,7 @@ class App:
         dialog.title('DeepSeek 设置')
         scale = max(1.0, dialog.winfo_fpixels('1i') / 96)
         width = min(int(570*scale), dialog.winfo_screenwidth()-int(60*scale))
-        height = min(int(420*scale), dialog.winfo_screenheight()-int(80*scale))
+        height = min(int(560*scale), dialog.winfo_screenheight()-int(80*scale))
         dialog.geometry(f'{width}x{height}')
         ttk.Label(dialog, text='输入新的 key；留空保留已有 key。保存时使用 Windows 加密。', wraplength=460).pack(padx=15, pady=15)
         secret = ttk.Entry(dialog, show='•', width=56)
@@ -1174,6 +1174,9 @@ class App:
             if chosen:
                 executable.set(chosen)
         ttk.Button(dialog, text='选择企业微信程序', command=choose_executable).pack(pady=4)
+        proxy_dns = tk.BooleanVar(value=self.config.get('allow_fake_ip_dns', False))
+        ttk.Checkbutton(dialog, text='兼容本机代理 Fake-IP DNS（198.18.x.x）',
+                        variable=proxy_dns).pack(padx=12, pady=6)
 
         def save():
             try:
@@ -1181,12 +1184,13 @@ class App:
                     save_key(ROOT, secret.get())
                 self.config['model'] = model.get().strip() or 'deepseek-flash'
                 self.config['wecom_exe'] = executable.get().strip()
+                self.config['allow_fake_ip_dns'] = proxy_dns.get()
                 atomic_write(ROOT / 'config.json', json.dumps(self.config, ensure_ascii=False, indent=2))
                 secret.delete(0, 'end')
                 self.refresh_key_status()
                 dialog.destroy()
-            except Exception:
-                messagebox.showerror('保存失败', 'key 或配置保存失败，请确认文件夹写权限。', parent=dialog)
+            except (OSError, ValueError) as error:
+                messagebox.showerror('保存失败', 'key 或配置保存失败：' + str(error), parent=dialog)
         ttk.Button(dialog, text='保存设置', command=save).pack(pady=12)
         def balance():
             def task():

@@ -23,3 +23,5 @@
 app.py 为统一窗口与顺序调度；checkin/batch.py 定义四星批次与五种菜单；checkin/engine.py 处理常规四星；checkin/shizhi.py 处理矢志；storage.py 的 ThemeHistory 管理五份权威 TXT，History 保留旧格式兼容；resume.py 只记录各列表的续跑起点。不要将矢志强塞进四星表单流程。修改查重必须验证列表按钮点击前跳过，并核对外部 TXT 更新和重启后行为；修改续跑记忆必须验证“断点之前的条目没有被点击”，且记忆损坏或对象消失时能回退到从头查重。
 
 分享包含 Python 运行时、公共源码、测试和驱动；五份记录为空，密钥不打包。收件人首次在设置填写自己的 DeepSeek API key。源代码中的 tests 可使用附带 runtime/python.exe -m unittest discover -s tests 运行。构建入口为 tools/build_portable.py。
+
+列表查找支持“点击加载更多”。只有页面明确显示“没有更多”等结束标识、且没有未使用对象时，才跳过本星继续其他星，保留真实剩余次数；加载无变化、滚动无进展或达到扫描上限则暂停，不冒充列表耗尽。

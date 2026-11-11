@@ -183,7 +183,7 @@ class EngineResumeTests(unittest.TestCase):
         engine.desktop.click.assert_called_once_with(page[3])
 
     def test_a_fully_used_list_after_the_remembered_row_resets_the_cursor(self):
-        page = [label('甲书', 100), button(100)]
+        page = [label('甲书', 100), button(100), label('没有更多了', 220)]
         engine = engine_for_pages([page] * 6)
         with tempfile.TemporaryDirectory() as root:
             engine.resume = ResumeMemory(root)
@@ -195,6 +195,17 @@ class EngineResumeTests(unittest.TestCase):
             self.assertIsNone(engine.resume.entry('弘文之星'))
             messages = ' '.join(call.args[0] for call in engine.report.call_args_list)
             self.assertIn('重置记忆后下次从列表开头查找', messages)
+
+
+    def test_stalled_list_retains_the_resume_cursor(self):
+        page = [label('甲书', 100), button(100)]
+        engine = engine_for_pages([page] * 6)
+        with tempfile.TemporaryDirectory() as root:
+            engine.resume = ResumeMemory(root)
+            engine.resume.remember('弘文之星', '甲书', 0)
+            with self.assertRaises(NeedUser):
+                engine.choose('弘文之星', {'甲书'})
+            self.assertEqual(engine.resume.entry('弘文之星')['object'], '甲书')
 
 
 class ShizhiResumeTests(unittest.TestCase):

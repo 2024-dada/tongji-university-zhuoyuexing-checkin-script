@@ -33,6 +33,10 @@ class MaterialUnavailable(NeedUser):
     """An unsubmitted object has no usable material; the batch may advance."""
 
 
+class ListExhausted(NeedUser):
+    """The list explicitly reports its end, with no unused object available."""
+
+
 class Engine:
     def __init__(self, root, config, history, api, cancel, report, handoff, on_row=None,
                  data_root=None, browser=False, resume=None):
@@ -237,6 +241,8 @@ class Engine:
         order = []
         retried = False
         reported_skip = False
+        loads = 0
+        loaded_at = None
         self.position_hint = None
 
         for _ in range(200):
@@ -275,7 +281,8 @@ class Engine:
             fingerprint = tuple(sorted(set(labels), key=object_key))
             unchanged = unchanged + 1 if fingerprint == previous else 0
             previous = fingerprint
-            if unchanged >= 3:
+            more = self.load_more_target(nodes)
+            if unchanged >= 3 and more is None:
                 if point is not None and not point.done and not retried:
                     # The remembered object is no longer listed (removed, renamed
                     # or hidden). Drop the stale cursor and rescan from the top
@@ -291,14 +298,16 @@ class Engine:
                     except NeedUser:
                         self.report('未能把列表滚回开头，按当前位置继续查找。')
                     continue
-                if point is not None and point.done:
+                if point is not None and point.done and self.list_end_visible(nodes):
                     # The remembered prefix and everything after it are done, so
                     # reset the cursor: the next run starts at the top and can
                     # pick up tasks the list inserts there.
                     self.report('续跑记忆：断点之后已经没有未使用对象，本次已扫到列表末尾，'
                                 '重置记忆后下次从列表开头查找。')
                     self.forget_position(theme)
-                raise NeedUser('已按页面顺序遍历当前可访问列表，没有未使用对象；保留现有记录并停止。')
+                if self.list_end_visible(nodes):
+                    raise ListExhausted('列表已明确显示没有更多，当前没有未使用对象。')
+                raise NeedUser('列表连续未变化，尚不能确认已经到底；请检查加载或滚动后继续，次数和记录保留。')
             if point is not None and point.done and not reported_skip:
                 reported_skip = True
                 if point.skipped:
@@ -316,15 +325,63 @@ class Engine:
                     selected = self.wait_for_form(theme, name)
                     return name, self.teacher_fields(name, {}, selected)
                 return name, self.details(theme, name)
+            if more is None and self.list_end_visible(nodes):
+                if point is not None and point.done:
+                    self.forget_position(theme)
+                    self.report('列表已明确结束，重置记忆后下次从列表开头查找。')
+                raise ListExhausted('列表已明确显示没有更多，当前没有未使用对象。')
             seen.update(object_key(name) for name in labels)
             next_page = find(nodes, '下一页')
             if next_page and next_page.get('enabled'):
                 self.report('当前页没有未使用对象，翻到下一页继续查找……')
                 self.desktop.click(next_page)
                 self.desktop.pause(.4)
+            elif more is not None:
+                if loads >= 40:
+                    raise NeedUser('加载更多达到本轮上限，尚不能确认列表耗尽；记录和次数保留。')
+                if fingerprint == loaded_at:
+                    raise NeedUser('点击加载更多后条目没有增加，已暂停当前星；请等待加载后继续，次数保留。')
+                loads += 1
+                loaded_at = fingerprint
+                self.report('当前页没有未使用对象，点击加载更多继续查找……')
+                self.desktop.click(more)
+                self.wait_for_load(nodes)
             else:
                 self.scroll_selector(nodes)
         raise NeedUser('下滑查找达到安全上限，仍未找到未使用对象；记录保留，不自动重复。')
+
+    @staticmethod
+    def list_signature(nodes):
+        return tuple(sorted({str(n.get('name', '')).strip() for n in nodes
+                             if str(n.get('name', '')).strip()}))
+
+    def wait_for_load(self, nodes, attempts=4):
+        """After 加载更多, give the list a bounded moment to grow."""
+        before = self.list_signature(nodes)
+        for _ in range(attempts):
+            self.desktop.pause(1)
+            current = self.selector_visible_nodes(self.nodes())
+            if self.list_signature(current) != before:
+                return current
+        self.report('点击“加载更多”后列表暂时没有变化，继续向下浏览。')
+        return self.selector_visible_nodes(self.nodes())
+
+    def load_more_target(self, nodes):
+        """The visible “点击加载更多” link of the object list, if any."""
+        visible = self.selector_visible_nodes(nodes)
+        links = [n for n in visible
+                 if object_key(n.get('name', '')) in ('点击加载更多', '加载更多', '查看更多')
+                 and n.get('enabled', True)]
+        if not links:
+            return None
+        targets = self.unique_click_targets(links)
+        return targets[0] if len(targets) == 1 else None
+
+    @staticmethod
+    def list_end_visible(nodes):
+        return any(object_key(n.get('name', '')) in
+                   ('没有更多', '没有更多了', '暂无更多', '已全部加载', '已加载全部')
+                   for n in nodes)
 
     def resume_point(self, theme, minimum_containment=6):
         """Locate the remembered stop point for this list, if any."""

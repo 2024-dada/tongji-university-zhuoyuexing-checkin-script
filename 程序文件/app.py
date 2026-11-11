@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from checkin.credentials import load_key, save_key
 from checkin.deepseek import DeepSeek, NoBalance
-from checkin.engine import DailyLimit, Engine, MaterialUnavailable, THEMES
+from checkin.engine import DailyLimit, Engine, ListExhausted, MaterialUnavailable, THEMES
 from checkin.batch import ALL_THEMES, PAGE_THEMES, BatchSession
 from checkin.storage import History, ThemeHistory, atomic_write, today
 from checkin.resume import ResumeMemory
@@ -546,6 +546,7 @@ class App:
         if any(count is None for count in session.remaining.values()):
             session.refresh(engine.read_remaining(session.themes))
         self.events.put(('batch', session.summary()))
+        exhausted = set()
         for _ in range(200):
             engine.desktop.check()
             if not session.active:
@@ -553,8 +554,12 @@ class App:
             if session.date != today():
                 session.active = False
                 raise ValueError('日期已变化，请重新开始读取当天次数。')
-            theme = next((t for t in themes if (session.remaining[t] or 0) > 0), None)
+            theme = next((t for t in themes if t not in exhausted and (session.remaining[t] or 0) > 0), None)
             if not theme:
+                if exhausted and not any((session.remaining[t] or 0) > 0 for t in session.themes if t not in exhausted):
+                    session.active = False
+                    self.report('可用列表已处理完；有剩余次数的星没有未使用对象，未把次数清零。')
+                    return
                 if scope is None or not session.next_theme():
                     session.active = False
                     self.report('本次页面可用次数已处理完。历史记录保留。')
@@ -566,6 +571,11 @@ class App:
             except MaterialUnavailable as error:
                 self.report('资料搜不到，已记录跳过，继续下一个；未提交、未扣次数：' + str(error))
                 self.events.put(('skipped', '资料搜不到，继续下一项：' + str(error)))
+                continue
+            except ListExhausted as error:
+                exhausted.add(theme)
+                self.report(theme + '：' + str(error) + ' 跳过本星，继续其他星；剩余次数保留。')
+                self.events.put(('batch', session.summary()))
                 continue
             self.events.put(('row', row.copy()))
             engine.fill(row)

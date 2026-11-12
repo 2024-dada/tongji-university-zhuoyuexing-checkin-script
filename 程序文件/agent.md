@@ -78,3 +78,5 @@ Windows HTTPS 连接被重置或响应中断时最多重试一次；证书错误
 2026-11-09 配图传输错误必须与内容筛选失败区分。ImageSearchUnavailable 是 ImageSelectionRequired 的子类，Engine.prepare 必须先捕获前者，保留待提交并暂停，不能落入 skip_unavailable。全部候选下载失败应报告实际网络异常；代理将公网域名解析为 198.18.0.0/16 时，未启用兼容必须立即报出 Fake-IP 原因，不可逐张吞掉错误再把对象永久标为已跳过。兼容选项在“更多设置”，默认关闭，只允许域名使用该范围，直接输入的私有 IP 仍拒绝。
 
 2026-11-11 吸收 5.4 的加载更多和单星列表耗尽衔接。ListExhausted 仅用于明确结束标识，不得由扫描上限或静止列表推导。批次跳过耗尽星不能修改真实剩余次数；保留 ImageSearchUnavailable 优先捕获及 Fake-IP 兼容配置。
+
+2026-11-12 主界面 clear_page / finish_clear_page 仅清显示，禁止调用 History.clear_all 或 ResumeMemory.forget。清页应等待工作线程空闲并丢弃迟到的界面事件，保留 TXT、待提交材料、勾选项、续跑位置。

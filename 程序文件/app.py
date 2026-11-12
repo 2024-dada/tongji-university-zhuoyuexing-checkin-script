@@ -139,7 +139,7 @@ class App:
         )
         self.image_uninstall_button.pack(side='right', padx=6)
         ttk.Button(history_tools, text='清除运行日志', command=self.clear_runtime_log).pack(side='right', padx=6)
-        self.clear_button = ttk.Button(history_tools, text='清空记录和页面', command=self.clear_all)
+        self.clear_button = ttk.Button(history_tools, text='清空当前页面', command=self.clear_page)
         self.clear_button.pack(side='right', padx=6)
         self.log = tk.Text(window, height=7, wrap='word', state='disabled', font=('Microsoft YaHei', 9))
         self.log.pack(fill='x', padx=12, pady=10)
@@ -431,7 +431,7 @@ class App:
                     if self.uninstalling:
                         self.window.after(0, self.finish_uninstall)
                     elif self.clearing:
-                        self.finish_clear()
+                        self.finish_clear_page()
                     else:
                         self.image_unloading = False
                         self.image_uninstall_button.config(state='normal')
@@ -802,13 +802,13 @@ class App:
         self.log.delete('1.0', 'end')
         self.log.config(state='disabled')
 
-    def clear_all(self):
+    def clear_page(self):
         if self.clearing:
             return
-        prompt = ('清空所有主题的当前 TXT 记录（待提交、已完成、已放弃），并清除助手页面的正文、配图显示和日志。'
-                  '\n清空后，防重复记录从零开始。原 TXT 会先保存独立备份，配置、API key 和照片文件保留。'
-                  '\n当前自动操作会先停止，结束后再清空。是否继续？')
-        if not messagebox.askyesno('清空记录和页面', prompt, parent=self.window):
+        prompt = ('只清空助手当前显示的正文、配图、日志和任务进度。'
+                  '\n打卡记录、待提交材料、续跑位置、配置和照片文件全部保留。'
+                  '\n当前自动操作会先停止，结束后再清空显示。是否继续？')
+        if not messagebox.askyesno('清空当前页面', prompt, parent=self.window):
             return
         self.clearing = True
         if self.batch:
@@ -821,31 +821,16 @@ class App:
         self.fill_button.config(state='disabled')
         self.continue_button.config(state='disabled')
         if self.busy:
-            self.status.set('正在停止当前操作；操作结束后自动清空记录和页面。')
+            self.status.set('正在停止当前操作；操作结束后自动清空当前页面，打卡记录保留。')
             return
-        self.finish_clear()
+        self.finish_clear_page()
 
-    def finish_clear(self):
+    def finish_clear_page(self):
         # Called only after the worker's idle event, so late row updates cannot
         # recreate records or refill the page after the reset.
-        try:
-            backup = self.history.clear_all()
-        except (OSError, ValueError) as error:
-            self.clearing = False
-            self.image_unloading = False
-            self.clear_button.config(state='normal')
-            self.image_uninstall_button.config(state='normal')
-            self.start_button.config(state='normal')
-            self.status.set('清空失败，原记录保留。')
-            self.refresh_pending()
-            messagebox.showerror('清空失败', str(error), parent=self.window)
-            return
         self.row, self.batch, self.awaiting = None, None, False
         self.run_state.set('等待开始')
         self.elapsed.set('本条运行时间：00:00')
-        self.theme.set(ALL_THEMES)
-        for checked in getattr(self, 'theme_checks', {}).values():
-            checked.set(True)
         self.text.delete('1.0', 'end')
         self.text.edit_reset()
         self.log.config(state='normal')
@@ -854,11 +839,8 @@ class App:
         self.object_label.set('尚未选择打卡对象')
         self.image_label.set('配图尚未准备')
         self.batch_status.set('本次任务尚未开始')
-        memory = getattr(self, 'memory', None)
-        if memory is not None:
-            memory.forget()
         self.refresh_memory()
-        self.status.set('记录和页面已清空；原记录已备份到“记录备份”。' if backup else '记录和页面已清空。')
+        self.status.set('当前页面已清空；打卡记录、待提交材料和续跑位置保留，继续运行可恢复。')
         while True:
             try:
                 self.events.get_nowait()

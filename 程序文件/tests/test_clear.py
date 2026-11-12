@@ -75,11 +75,12 @@ class ClearAppTests(unittest.TestCase):
                      'image_uninstall_button','run_state','elapsed'):
             setattr(self.app,name,Mock())
         self.app.refresh_pending=Mock();self.app.show_row=Mock()
+        self.app.memory=Mock()
         self.app.fit_monitor=Mock()
 
     def test_canceled_confirmation_has_no_effect(self):
         snapshot=self.app.history.path.read_bytes()
-        with patch.object(self.module.messagebox,'askyesno',return_value=False):self.app.clear_all()
+        with patch.object(self.module.messagebox,'askyesno',return_value=False):self.app.clear_page()
         self.assertEqual(self.app.history.path.read_bytes(),snapshot)
         self.assertFalse(self.app.cancel.is_set());self.assertFalse(self.app.clearing)
         self.app.text.delete.assert_not_called()
@@ -101,25 +102,28 @@ class ClearAppTests(unittest.TestCase):
         self.app.text.delete.assert_not_called()
         self.app.theme.set.assert_not_called()
 
-    def test_success_clears_page_undo_log_row_and_batch(self):
-        with patch.object(self.module.messagebox,'askyesno',return_value=True):self.app.clear_all()
-        self.assertEqual(self.app.history.path.read_bytes(),b'')
+    def test_success_clears_only_page_and_retains_records_and_cursor(self):
+        snapshot=self.app.history.path.read_bytes()
+        with patch.object(self.module.messagebox,'askyesno',return_value=True):self.app.clear_page()
+        self.assertEqual(self.app.history.path.read_bytes(),snapshot)
         self.assertIsNone(self.app.row);self.assertIsNone(self.app.batch);self.assertFalse(self.app.awaiting)
         self.app.text.delete.assert_called_once_with('1.0','end');self.app.text.edit_reset.assert_called_once()
         self.app.log.delete.assert_called_once_with('1.0','end')
-        self.app.theme.set.assert_called_once_with(self.module.ALL_THEMES)
+        self.app.theme.set.assert_not_called()
+        self.app.memory.forget.assert_not_called()
+        self.assertIsNotNone(self.app.history.pending('明德之星'))
         self.assertFalse(self.app.clearing)
 
     def test_running_operation_stops_then_clears_only_on_idle(self):
         self.app.busy=True
         snapshot=self.app.history.path.read_bytes()
-        with patch.object(self.module.messagebox,'askyesno',return_value=True):self.app.clear_all()
+        with patch.object(self.module.messagebox,'askyesno',return_value=True):self.app.clear_page()
         self.assertTrue(self.app.cancel.is_set());self.assertTrue(self.app.continuation.is_set())
         self.assertTrue(self.app.clearing);self.assertEqual(self.app.history.path.read_bytes(),snapshot)
         self.app.text.delete.assert_not_called()
         self.app.events.put(('idle',None));self.app.events.put(('row',{'old':'late row'}));self.app.events.put(('log','late log'))
         self.app.poll()
-        self.assertEqual(self.app.history.path.read_bytes(),b'')
+        self.assertEqual(self.app.history.path.read_bytes(),snapshot)
         self.assertFalse(self.app.clearing);self.assertFalse(self.app.busy)
         self.app.show_row.assert_not_called();self.app.log.insert.assert_not_called()
 
@@ -128,10 +132,11 @@ class ClearAppTests(unittest.TestCase):
         self.app.background(task)
         task.assert_not_called();self.assertFalse(self.app.busy)
 
-    def test_storage_failure_keeps_existing_page_and_records(self):
-        snapshot=self.app.history.path.read_bytes();row=self.app.row
-        with patch.object(self.module.messagebox,'askyesno',return_value=True),patch.object(self.module.messagebox,'showerror'),patch.object(self.app.history,'clear_all',side_effect=OSError('disk full')):
-            self.app.clear_all()
+    def test_clear_page_never_calls_destructive_storage_clear(self):
+        snapshot=self.app.history.path.read_bytes()
+        with patch.object(self.module.messagebox,'askyesno',return_value=True), patch.object(
+                self.app.history,'clear_all',side_effect=AssertionError('must not clear records')):
+            self.app.clear_page()
         self.assertEqual(self.app.history.path.read_bytes(),snapshot)
-        self.assertIs(self.app.row,row);self.app.text.delete.assert_not_called()
-        self.assertFalse(self.app.clearing)
+        self.app.memory.forget.assert_not_called()
+        self.app.text.delete.assert_called_once_with('1.0','end')

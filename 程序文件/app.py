@@ -122,6 +122,7 @@ class App:
         self.continue_button = ttk.Button(actions, text='继续当前步骤', command=self.resume, state='disabled')
         self.continue_button.pack(side='left', padx=6)
         self.confirm_button = ttk.Button(actions, text='确认已提交', command=self.confirm, state='disabled')
+        self.confirm_button.pack(side='left', padx=6)
         history_tools = ttk.Frame(window, padding=(12, 0))
         history_tools.pack(fill='x')
         ttk.Button(history_tools, text='中止当前待提交', command=self.abandon).pack(side='left', padx=6)
